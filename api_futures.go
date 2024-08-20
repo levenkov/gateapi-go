@@ -4852,7 +4852,7 @@ func (a *FuturesApiService) CancelPriceTriggeredOrder(ctx context.Context, settl
 }
 
 type FuturesTickerEvent struct {
-	Time    int    `json:"time"`
+	Time    int64  `json:"time"`
 	TimeMs  int64  `json:"time_ms"`
 	Channel string `json:"channel"`
 	Event   string `json:"event"`
@@ -4880,7 +4880,7 @@ type FuturesTickerUpdateEvent struct {
 	ChangeFrom            string `json:"change_from"`
 }
 
-type FuturesTickerUpdateHandler func(event FuturesTickerUpdateEvent)
+type FuturesTickerUpdateHandler func(event FuturesTickerUpdateEvent, timestamp int64)
 
 func (a *FuturesApiService) ListenFunding(ctx context.Context, settle string, contracts []string, fnUpdate FuturesTickerUpdateHandler, fnError func(error)) (<-chan struct{}, chan<- struct{}, error) {
 	done := make(chan struct{})
@@ -4966,7 +4966,7 @@ func (a *FuturesApiService) ListenFunding(ctx context.Context, settle string, co
 					continue
 				}
 
-				fnUpdate(updateEvent)
+				fnUpdate(updateEvent, event.Time)
 			}
 		}
 	}()
