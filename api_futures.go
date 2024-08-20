@@ -11,11 +11,16 @@ package gateapi
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"github.com/antihax/optional"
+	"github.com/gorilla/websocket"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // Linger please
@@ -4844,4 +4849,127 @@ func (a *FuturesApiService) CancelPriceTriggeredOrder(ctx context.Context, settl
 	}
 
 	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type FuturesTickerEvent struct {
+	Time    int    `json:"time"`
+	TimeMs  int64  `json:"time_ms"`
+	Channel string `json:"channel"`
+	Event   string `json:"event"`
+
+	Result json.RawMessage `json:"result"`
+}
+
+type FuturesTickerUpdateEvent struct {
+	Contract              string `json:"contract"`
+	Last                  string `json:"last"`
+	ChangePercentage      string `json:"change_percentage"`
+	TotalSize             string `json:"total_size"`
+	Volume24H             string `json:"volume_24h"`
+	Volume24HBase         string `json:"volume_24h_base"`
+	Volume24HQuote        string `json:"volume_24h_quote"`
+	Volume24HSettle       string `json:"volume_24h_settle"`
+	MarkPrice             string `json:"mark_price"`
+	FundingRate           string `json:"funding_rate"`
+	FundingRateIndicative string `json:"funding_rate_indicative"`
+	IndexPrice            string `json:"index_price"`
+	QuantoBaseRate        string `json:"quanto_base_rate"`
+	Low24H                string `json:"low_24h"`
+	High24H               string `json:"high_24h"`
+	PriceType             string `json:"price_type"`
+	ChangeFrom            string `json:"change_from"`
+}
+
+type FuturesTickerUpdateHandler func(event FuturesTickerUpdateEvent)
+
+func (a *FuturesApiService) ListenFunding(ctx context.Context, settle string, contracts []string, fnUpdate FuturesTickerUpdateHandler, fnError func(error)) (<-chan struct{}, chan<- struct{}, error) {
+	done := make(chan struct{})
+	stop := make(chan struct{})
+
+	transport, ok := a.client.cfg.HTTPClient.Transport.(*http.Transport)
+	if !ok {
+		return nil, nil, errors.New("Error: myRoundTripper is not *http.Transport")
+	}
+
+	dialer := websocket.Dialer{
+		Proxy:             http.ProxyFromEnvironment,
+		NetDialContext:    transport.DialContext,
+		NetDialTLSContext: transport.DialTLSContext,
+		HandshakeTimeout:  10 * time.Second,
+	}
+	ws, _, err := dialer.Dial("wss://fx-ws.gateio.ws/v4/ws/"+settle, nil)
+	if err != nil {
+		log.Println("Error connecting to WebSocket:", err)
+
+		return nil, nil, err
+	} else {
+		log.Println("Connection successful")
+	}
+
+	subscribeMessage := map[string]interface{}{
+		"channel": "futures.tickers",
+		"event":   "subscribe",
+		"payload": contracts,
+	}
+
+	err = ws.WriteJSON(subscribeMessage)
+	if err != nil {
+		ws.Close()
+		log.Println("Error subscribing to channel:", err)
+		return nil, nil, err
+	}
+
+	go func() {
+		defer close(done)
+		defer ws.Close()
+
+		for {
+			ws.SetReadDeadline(time.Now().Add(10 * time.Second))
+
+			_, rawMessage, err := ws.ReadMessage()
+			if err != nil {
+				log.Println("Error reading message:", err)
+
+				fnError(err)
+
+				break
+			}
+
+			var event FuturesTickerEvent
+
+			err = a.client.decode(&event, rawMessage, "application/json")
+			if err != nil {
+				log.Println("Error decoding message:", err, rawMessage)
+
+				continue
+			}
+
+			if event.Event != "update" || event.Channel != "futures.tickers" {
+				continue
+			}
+
+			var updateEvents []FuturesTickerUpdateEvent
+
+			err = a.client.decode(&updateEvents, event.Result, "application/json")
+			if err != nil {
+				log.Println("Error decoding message:", err, event.Result)
+
+				continue
+			}
+
+			if len(updateEvents) == 0 {
+				continue
+			}
+
+			for _, updateEvent := range updateEvents {
+				if !contains(contracts, updateEvent.Contract) {
+					continue
+				}
+
+				fnUpdate(updateEvent)
+			}
+		}
+	}()
+
+	return done, stop, nil
 }
