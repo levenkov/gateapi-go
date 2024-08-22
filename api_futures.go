@@ -15,6 +15,7 @@ import (
 	"errors"
 	"github.com/antihax/optional"
 	"github.com/gorilla/websocket"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -4897,7 +4898,7 @@ func (a *FuturesApiService) ListenFunding(ctx context.Context, settle string, co
 		NetDialTLSContext: transport.DialTLSContext,
 		HandshakeTimeout:  10 * time.Second,
 	}
-	ws, _, err := dialer.Dial("wss://fx-ws.gateio.ws/v4/ws/"+settle, nil)
+	ws, _, err := dialer.Dial(a.client.cfg.WsBasePath()+settle, nil)
 	if err != nil {
 		log.Println("Error connecting to WebSocket:", err)
 
@@ -4905,6 +4906,11 @@ func (a *FuturesApiService) ListenFunding(ctx context.Context, settle string, co
 	} else {
 		log.Println("Connection successful")
 	}
+
+	go func() {
+		<-ctx.Done()
+		ws.Close()
+	}()
 
 	subscribeMessage := map[string]interface{}{
 		"channel": "futures.tickers",
@@ -4972,4 +4978,195 @@ func (a *FuturesApiService) ListenFunding(ctx context.Context, settle string, co
 	}()
 
 	return done, stop, nil
+}
+
+type OrderBookEvent struct {
+	Channel string `json:"channel"`
+	Event   string `json:"event"`
+	Time    int64  `json:"time"`
+	TimeMs  int64  `json:"time_ms"`
+
+	Result json.RawMessage `json:"result"`
+}
+
+type OrderBookUpdateEvent struct {
+	FirstUpdateID int `json:"U"`
+	LastUpdateID  int `json:"u"`
+	Asks          []struct {
+		Price string `json:"p"`
+		Size  int    `json:"s"`
+	} `json:"a"`
+	Bids []struct {
+		Price string `json:"p"`
+		Size  int    `json:"s"`
+	} `json:"b"`
+	Contract    string `json:"s"`
+	TimestampMs int64  `json:"t"`
+}
+
+type OrderBookUpdateHandler func(event OrderBookUpdateEvent, timestamp int64)
+
+func (a *FuturesApiService) ListenOrderBook(ctx context.Context, settle string, contracts []string, fnUpdate OrderBookUpdateHandler, fnError func(error)) (<-chan struct{}, chan<- struct{}, error) {
+	if ctx.Err() != nil {
+		return nil, nil, ctx.Err()
+	}
+
+	done := make(chan struct{})
+	stop := make(chan struct{})
+
+	transport, ok := a.client.cfg.HTTPClient.Transport.(*http.Transport)
+	if !ok {
+		return nil, nil, errors.New("Error: myRoundTripper is not *http.Transport")
+	}
+
+	dialer := websocket.Dialer{
+		Proxy:             http.ProxyFromEnvironment,
+		NetDialContext:    transport.DialContext,
+		NetDialTLSContext: transport.DialTLSContext,
+		HandshakeTimeout:  10 * time.Second,
+	}
+	ws, _, err := dialer.Dial(a.client.cfg.WsBasePath()+settle, nil)
+	if err != nil {
+		log.Println("Error connecting to WebSocket:", err)
+
+		return nil, nil, err
+	} else {
+		log.Println("Connection successful")
+	}
+
+	go func() {
+		<-ctx.Done()
+		ws.Close()
+	}()
+
+	subscribeMessage := map[string]interface{}{
+		"channel": "futures.order_book_update",
+		"event":   "subscribe",
+		"payload": []interface{}{contracts[0], "1000ms", "20"},
+	}
+
+	err = ws.WriteJSON(subscribeMessage)
+	if err != nil {
+		ws.Close()
+		log.Println("Error subscribing to channel:", err)
+		return nil, nil, err
+	}
+
+	go func() {
+		defer close(done)
+		defer ws.Close()
+
+		for {
+			ws.SetReadDeadline(time.Now().Add(10 * time.Second))
+
+			_, rawMessage, err := ws.ReadMessage()
+			if err != nil {
+				log.Println("Error reading message:", err)
+
+				fnError(err)
+
+				break
+			}
+
+			var event OrderBookEvent
+
+			err = a.client.decode(&event, rawMessage, "application/json")
+			if err != nil {
+				log.Println("Error decoding message:", err, rawMessage)
+
+				continue
+			}
+
+			if event.Event != "update" || event.Channel != "futures.order_book_update" {
+				continue
+			}
+
+			var updateEvent OrderBookUpdateEvent
+
+			err = a.client.decode(&updateEvent, event.Result, "application/json")
+			if err != nil {
+				log.Println("Error decoding message:", err, event.Result)
+
+				continue
+			}
+
+			if !contains(contracts, updateEvent.Contract) {
+				continue
+			}
+
+			fnUpdate(updateEvent, event.Time)
+		}
+	}()
+
+	return done, stop, nil
+}
+
+func (a *FuturesApiService) ServerTime(ctx context.Context) (int64, error) {
+	var (
+		localVarHTTPMethod   = http.MethodGet
+		localVarPostBody     interface{}
+		localVarFormFileName string
+		localVarFileName     string
+		localVarFileBytes    []byte
+	)
+
+	localVarPath := a.client.cfg.BasePath + "/spot/time"
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+
+	localVarHTTPContentTypes := []string{}
+
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+
+	r, err := a.client.prepareRequest(ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, localVarFormFileName, localVarFileName, localVarFileBytes)
+	if err != nil {
+		return 0, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(r)
+	if err != nil || localVarHTTPResponse == nil {
+		return 0, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	if err != nil {
+		return 0, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status + ", " + string(localVarBody),
+		}
+		var gateErr GateAPIError
+		if e := a.client.decode(&gateErr, localVarBody, localVarHTTPResponse.Header.Get("Content-Type")); e == nil && gateErr.Label != "" {
+			gateErr.APIError = newErr
+			return 0, gateErr
+		}
+		return 0, newErr
+	}
+
+	var result struct {
+		Time int64 `json:"server_time"`
+	}
+
+	err = a.client.decode(&result, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		return 0, err
+	}
+
+	return result.Time, nil
 }

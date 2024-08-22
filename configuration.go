@@ -12,6 +12,7 @@ package gateapi
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -104,6 +105,26 @@ func NewConfiguration() *Configuration {
 		},
 	}
 	return cfg
+}
+
+func (c *Configuration) WsBasePath() string {
+	basePathUrl, err := url.Parse(c.BasePath)
+	if err != nil {
+		panic("BasePath is not a valid URL: " + c.BasePath)
+	}
+
+	parts := strings.Split(basePathUrl.Host, ".")
+	if len(parts) != 3 {
+		return c.BasePath
+	}
+
+	resUrl := url.URL{
+		Scheme: "wss",
+		Host:   "fx-ws." + parts[1] + "." + parts[2],
+		Path:   "/v4/ws",
+	}
+
+	return resUrl.String()
 }
 
 // AddDefaultHeader adds a new HTTP header to the default header in the request
