@@ -15,7 +15,6 @@ import (
 	"errors"
 	"github.com/antihax/optional"
 	"github.com/gorilla/websocket"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -5099,74 +5098,4 @@ func (a *FuturesApiService) ListenOrderBook(ctx context.Context, settle string, 
 	}()
 
 	return done, stop, nil
-}
-
-func (a *FuturesApiService) ServerTime(ctx context.Context) (int64, error) {
-	var (
-		localVarHTTPMethod   = http.MethodGet
-		localVarPostBody     interface{}
-		localVarFormFileName string
-		localVarFileName     string
-		localVarFileBytes    []byte
-	)
-
-	localVarPath := a.client.cfg.BasePath + "/spot/time"
-
-	localVarHeaderParams := make(map[string]string)
-	localVarQueryParams := url.Values{}
-	localVarFormParams := url.Values{}
-
-	localVarHTTPContentTypes := []string{}
-
-	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
-	if localVarHTTPContentType != "" {
-		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
-	}
-
-	localVarHTTPHeaderAccepts := []string{"application/json"}
-
-	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
-	if localVarHTTPHeaderAccept != "" {
-		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
-	}
-
-	r, err := a.client.prepareRequest(ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, localVarFormFileName, localVarFileName, localVarFileBytes)
-	if err != nil {
-		return 0, err
-	}
-
-	localVarHTTPResponse, err := a.client.callAPI(r)
-	if err != nil || localVarHTTPResponse == nil {
-		return 0, err
-	}
-
-	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
-	localVarHTTPResponse.Body.Close()
-	if err != nil {
-		return 0, err
-	}
-
-	if localVarHTTPResponse.StatusCode >= 300 {
-		newErr := GenericOpenAPIError{
-			body:  localVarBody,
-			error: localVarHTTPResponse.Status + ", " + string(localVarBody),
-		}
-		var gateErr GateAPIError
-		if e := a.client.decode(&gateErr, localVarBody, localVarHTTPResponse.Header.Get("Content-Type")); e == nil && gateErr.Label != "" {
-			gateErr.APIError = newErr
-			return 0, gateErr
-		}
-		return 0, newErr
-	}
-
-	var result struct {
-		Time int64 `json:"server_time"`
-	}
-
-	err = a.client.decode(&result, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
-	if err != nil {
-		return 0, err
-	}
-
-	return result.Time, nil
 }
