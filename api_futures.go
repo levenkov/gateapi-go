@@ -4897,7 +4897,7 @@ func (a *FuturesApiService) ListenFunding(ctx context.Context, settle string, co
 		NetDialTLSContext: transport.DialTLSContext,
 		HandshakeTimeout:  10 * time.Second,
 	}
-	ws, _, err := dialer.Dial(a.client.cfg.WsBasePath()+settle, nil)
+	ws, _, err := dialer.Dial(a.client.cfg.WsBasePath()+"/"+settle, nil)
 	if err != nil {
 		log.Println("Error connecting to WebSocket:", err)
 
@@ -5024,7 +5024,7 @@ func (a *FuturesApiService) ListenOrderBook(ctx context.Context, settle string, 
 		NetDialTLSContext: transport.DialTLSContext,
 		HandshakeTimeout:  10 * time.Second,
 	}
-	ws, _, err := dialer.Dial(a.client.cfg.WsBasePath()+settle, nil)
+	ws, _, err := dialer.Dial(a.client.cfg.WsBasePath()+"/"+settle, nil)
 	if err != nil {
 		log.Println("Error connecting to WebSocket:", err)
 
