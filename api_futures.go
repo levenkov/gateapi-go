@@ -4880,15 +4880,14 @@ type FuturesTickerUpdateEvent struct {
 	ChangeFrom            string `json:"change_from"`
 }
 
-type FuturesTickerUpdateHandler func(event FuturesTickerUpdateEvent, timestamp int64)
+type FuturesTickerUpdateHandler func(event FuturesTickerUpdateEvent)
 
-func (a *FuturesApiService) ListenFunding(ctx context.Context, settle string, contracts []string, fnUpdate FuturesTickerUpdateHandler, fnError func(error)) (<-chan struct{}, chan<- struct{}, error) {
+func (a *FuturesApiService) ListenFunding(ctx context.Context, settle string, contracts []string, fnUpdate FuturesTickerUpdateHandler, fnError func(error)) (<-chan struct{}, error) {
 	done := make(chan struct{})
-	stop := make(chan struct{})
 
 	transport, ok := a.client.cfg.HTTPClient.Transport.(*http.Transport)
 	if !ok {
-		return nil, nil, errors.New("Error: myRoundTripper is not *http.Transport")
+		return nil, errors.New("Error: myRoundTripper is not *http.Transport")
 	}
 
 	dialer := websocket.Dialer{
@@ -4901,7 +4900,7 @@ func (a *FuturesApiService) ListenFunding(ctx context.Context, settle string, co
 	if err != nil {
 		log.Println("Error connecting to WebSocket:", err)
 
-		return nil, nil, err
+		return nil, err
 	} else {
 		log.Println("Connection successful")
 	}
@@ -4921,7 +4920,7 @@ func (a *FuturesApiService) ListenFunding(ctx context.Context, settle string, co
 	if err != nil {
 		ws.Close()
 		log.Println("Error subscribing to channel:", err)
-		return nil, nil, err
+		return nil, err
 	}
 
 	go func() {
@@ -4971,12 +4970,12 @@ func (a *FuturesApiService) ListenFunding(ctx context.Context, settle string, co
 					continue
 				}
 
-				fnUpdate(updateEvent, event.Time)
+				fnUpdate(updateEvent)
 			}
 		}
 	}()
 
-	return done, stop, nil
+	return done, nil
 }
 
 type OrderBookEvent struct {
