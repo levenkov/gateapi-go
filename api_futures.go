@@ -4880,7 +4880,7 @@ type FuturesTickerUpdateEvent struct {
 	ChangeFrom            string `json:"change_from"`
 }
 
-type FuturesTickerUpdateHandler func(event FuturesTickerUpdateEvent)
+type FuturesTickerUpdateHandler func(event FuturesTickerUpdateEvent, timestampMs int64)
 
 func (a *FuturesApiService) ListenFunding(ctx context.Context, settle string, contracts []string, fnUpdate FuturesTickerUpdateHandler, fnError func(error)) (<-chan struct{}, error) {
 	done := make(chan struct{})
@@ -4970,7 +4970,9 @@ func (a *FuturesApiService) ListenFunding(ctx context.Context, settle string, co
 					continue
 				}
 
-				fnUpdate(updateEvent)
+				timestamp := event.TimeMs
+
+				fnUpdate(updateEvent, timestamp)
 			}
 		}
 	}()
