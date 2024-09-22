@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // Linger please
@@ -3190,7 +3191,7 @@ func (a *SpotApiService) CancelSpotPriceTriggeredOrder(ctx context.Context, orde
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-func (a *SpotApiService) ServerTime(ctx context.Context) (int64, error) {
+func (a *SpotApiService) SetupServerTimeDiff(ctx context.Context) (int64, error) {
 	var (
 		localVarHTTPMethod   = http.MethodGet
 		localVarPostBody     interface{}
@@ -3262,7 +3263,7 @@ func (a *SpotApiService) ServerTime(ctx context.Context) (int64, error) {
 	}
 
 	var result struct {
-		Time int64 `json:"server_time"`
+		TimeMs int64 `json:"server_time"`
 	}
 
 	err = a.client.decode(&result, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
@@ -3270,7 +3271,10 @@ func (a *SpotApiService) ServerTime(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 
-	return result.Time, nil
+	currentTime := time.Now()
+	a.client.cfg.TimeOffset = (currentTime.UnixMilli() - result.TimeMs) / 1000
+
+	return result.TimeMs, nil
 }
 
 func (a *SpotApiService) Ping(ctx context.Context) error {

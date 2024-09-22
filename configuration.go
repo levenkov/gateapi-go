@@ -82,6 +82,7 @@ type Configuration struct {
 	Key           string            `json:"key,omitempty"`
 	Secret        string            `json:"secret,omitempty"`
 	Debug         bool              `json:"debug,omitempty"`
+	TimeOffset    int64             `json:"timeOffset,omitempty"`
 	Servers       []ServerConfiguration
 	HTTPClient    *http.Client
 }

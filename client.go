@@ -406,7 +406,7 @@ func (c *APIClient) prepareRequest(
 				}
 				hashedPayload := hex.EncodeToString(h.Sum(nil))
 
-				t := strconv.FormatInt(time.Now().Unix(), 10)
+				t := strconv.FormatInt(time.Now().Unix()-c.cfg.TimeOffset, 10)
 				rawQuery, err := url.QueryUnescape(requestUrl.RawQuery)
 				if err != nil {
 					return nil, err
