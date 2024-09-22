@@ -4994,11 +4994,11 @@ type OrderBookUpdateEvent struct {
 	LastUpdateID  int `json:"u"`
 	Asks          []struct {
 		Price string `json:"p"`
-		Size  int    `json:"s"`
+		Size  int64  `json:"s"`
 	} `json:"a"`
 	Bids []struct {
 		Price string `json:"p"`
-		Size  int    `json:"s"`
+		Size  int64  `json:"s"`
 	} `json:"b"`
 	Contract    string `json:"s"`
 	TimestampMs int64  `json:"t"`
@@ -5006,17 +5006,16 @@ type OrderBookUpdateEvent struct {
 
 type OrderBookUpdateHandler func(event OrderBookUpdateEvent, timestamp int64)
 
-func (a *FuturesApiService) ListenOrderBook(ctx context.Context, settle string, contracts []string, fnUpdate OrderBookUpdateHandler, fnError func(error)) (<-chan struct{}, chan<- struct{}, error) {
+func (a *FuturesApiService) ListenOrderBook(ctx context.Context, settle string, contracts []string, fnUpdate OrderBookUpdateHandler, fnError func(error)) (<-chan struct{}, error) {
 	if ctx.Err() != nil {
-		return nil, nil, ctx.Err()
+		return nil, ctx.Err()
 	}
 
 	done := make(chan struct{})
-	stop := make(chan struct{})
 
 	transport, ok := a.client.cfg.HTTPClient.Transport.(*http.Transport)
 	if !ok {
-		return nil, nil, errors.New("Error: myRoundTripper is not *http.Transport")
+		return nil, errors.New("Error: myRoundTripper is not *http.Transport")
 	}
 
 	dialer := websocket.Dialer{
@@ -5029,7 +5028,7 @@ func (a *FuturesApiService) ListenOrderBook(ctx context.Context, settle string, 
 	if err != nil {
 		log.Println("Error connecting to WebSocket:", err)
 
-		return nil, nil, err
+		return nil, err
 	} else {
 		log.Println("Connection successful")
 	}
@@ -5039,17 +5038,19 @@ func (a *FuturesApiService) ListenOrderBook(ctx context.Context, settle string, 
 		ws.Close()
 	}()
 
-	subscribeMessage := map[string]interface{}{
-		"channel": "futures.order_book_update",
-		"event":   "subscribe",
-		"payload": []interface{}{contracts[0], "1000ms", "20"},
-	}
+	for _, contract := range contracts {
+		subscribeMessage := map[string]interface{}{
+			"channel": "futures.order_book_update",
+			"event":   "subscribe",
+			"payload": []string{contract, "1000ms", "5"},
+		}
 
-	err = ws.WriteJSON(subscribeMessage)
-	if err != nil {
-		ws.Close()
-		log.Println("Error subscribing to channel:", err)
-		return nil, nil, err
+		err = ws.WriteJSON(subscribeMessage)
+		if err != nil {
+			ws.Close()
+			log.Println("Error subscribing to channel:", err)
+			return nil, err
+		}
 	}
 
 	go func() {
@@ -5098,5 +5099,5 @@ func (a *FuturesApiService) ListenOrderBook(ctx context.Context, settle string, 
 		}
 	}()
 
-	return done, stop, nil
+	return done, nil
 }
