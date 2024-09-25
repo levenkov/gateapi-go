@@ -1921,14 +1921,14 @@ UpdatePositionLeverage Update position leverage
 
 @return Position
 */
-func (a *FuturesApiService) UpdatePositionLeverage(ctx context.Context, settle string, contract string, leverage string, localVarOptionals *UpdatePositionLeverageOpts) (Position, *http.Response, error) {
+func (a *FuturesApiService) UpdatePositionLeverage(ctx context.Context, settle string, contract string, leverage string, localVarOptionals *UpdatePositionLeverageOpts) ([]Position, *http.Response, error) {
 	var (
 		localVarHTTPMethod   = http.MethodPost
 		localVarPostBody     interface{}
 		localVarFormFileName string
 		localVarFileName     string
 		localVarFileBytes    []byte
-		localVarReturnValue  Position
+		localVarReturnValue  []Position
 	)
 
 	// create path and map variables
@@ -5042,7 +5042,7 @@ func (a *FuturesApiService) ListenOrderBook(ctx context.Context, settle string, 
 		subscribeMessage := map[string]interface{}{
 			"channel": "futures.order_book_update",
 			"event":   "subscribe",
-			"payload": []string{contract, "1000ms", "5"},
+			"payload": []string{contract, "20ms", "20"},
 		}
 
 		err = ws.WriteJSON(subscribeMessage)
@@ -5083,6 +5083,112 @@ func (a *FuturesApiService) ListenOrderBook(ctx context.Context, settle string, 
 			}
 
 			var updateEvent OrderBookUpdateEvent
+
+			err = a.client.decode(&updateEvent, event.Result, "application/json")
+			if err != nil {
+				log.Println("Error decoding message:", err, event.Result)
+
+				continue
+			}
+
+			if !contains(contracts, updateEvent.Contract) {
+				continue
+			}
+
+			fnUpdate(updateEvent, event.Time)
+		}
+	}()
+
+	return done, nil
+}
+
+type BestBidAskUpdateEvent struct {
+	BidPrice    string `json:"b"`
+	BidSize     int64  `json:"B"`
+	AskPrice    string `json:"a"`
+	AskSize     int64  `json:"A"`
+	UpdateID    int    `json:"u"`
+	Contract    string `json:"s"`
+	TimestampMs int64  `json:"t"`
+}
+
+type BestBidAskUpdateHandler func(event BestBidAskUpdateEvent, timestamp int64)
+
+func (a *FuturesApiService) ListenBestBidAsk(ctx context.Context, settle string, contracts []string, fnUpdate BestBidAskUpdateHandler, fnError func(error)) (<-chan struct{}, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	done := make(chan struct{})
+
+	transport, ok := a.client.cfg.HTTPClient.Transport.(*http.Transport)
+	if !ok {
+		return nil, errors.New("Error: myRoundTripper is not *http.Transport")
+	}
+
+	dialer := websocket.Dialer{
+		Proxy:             http.ProxyFromEnvironment,
+		NetDialContext:    transport.DialContext,
+		NetDialTLSContext: transport.DialTLSContext,
+		HandshakeTimeout:  10 * time.Second,
+	}
+	ws, _, err := dialer.Dial(a.client.cfg.WsBasePath()+"/"+settle, nil)
+	if err != nil {
+		log.Println("Error connecting to WebSocket:", err)
+
+		return nil, err
+	} else {
+		log.Println("Connection successful")
+	}
+
+	go func() {
+		<-ctx.Done()
+		ws.Close()
+	}()
+
+	subscribeMessage := map[string]interface{}{
+		"channel": "futures.book_ticker",
+		"event":   "subscribe",
+		"payload": contracts,
+	}
+
+	err = ws.WriteJSON(subscribeMessage)
+	if err != nil {
+		ws.Close()
+		log.Println("Error subscribing to channel:", err)
+		return nil, err
+	}
+
+	go func() {
+		defer close(done)
+		defer ws.Close()
+
+		for {
+			ws.SetReadDeadline(time.Now().Add(10 * time.Second))
+
+			_, rawMessage, err := ws.ReadMessage()
+			if err != nil {
+				log.Println("Error reading message:", err)
+
+				fnError(err)
+
+				break
+			}
+
+			var event OrderBookEvent
+
+			err = a.client.decode(&event, rawMessage, "application/json")
+			if err != nil {
+				log.Println("Error decoding message:", err, rawMessage)
+
+				continue
+			}
+
+			if event.Event != "update" || event.Channel != "futures.book_ticker" {
+				continue
+			}
+
+			var updateEvent BestBidAskUpdateEvent
 
 			err = a.client.decode(&updateEvent, event.Result, "application/json")
 			if err != nil {
